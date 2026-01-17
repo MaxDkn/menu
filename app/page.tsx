@@ -1,16 +1,55 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { motion, useMotionValue, useTransform } from "framer-motion";
 
-/* ---------------- DATA ---------------- */
+const DATABASE_URL = "https://commission-menu-default-rtdb.europe-west1.firebasedatabase.app";
 
-const data = {
-    starter: ["Tomate séché", "Carotte", "Betterave"],
-    dish: ["Boulette vegan", "Boulette de viande riz"],
-    desert: ["Beignet au nutella", "Beignet au framboise", "Éclair au chocolat"],
-};
+/* ---------------- DATA ---------------- */
+type Vote = "😍" | "🙂" | "😐" | "🙁";
+
+interface MenuData {
+    starter: string[];
+    dish: string[];
+    dessert: string[];
+}
+
+interface Card {
+    title: string;
+    items: string[];
+    vote?: Vote;
+}
+
+function getTodayKey() {
+    const d = new Date();
+    return d.toLocaleDateString("fr-FR").replaceAll("/", "-");
+}
+
+async function fetchMenu(): Promise<MenuData> {
+    const dateKey = getTodayKey();
+    const cacheKey = `menu-${dateKey}`;
+
+    // 1️⃣ Cache local
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+        return JSON.parse(cached);
+    }
+
+    const res = await fetch(
+        `${DATABASE_URL}/${dateKey}.json`
+    );
+
+    if (!res.ok) {
+        throw new Error("Erreur lors du chargement du menu");
+    }
+
+    const data = await res.json();
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+
+    return data;
+}
+
 
 /* ---------------- EMOJI RAIN ---------------- */
 
@@ -24,7 +63,7 @@ function EmojiBalloons({ emoji }: { emoji: string }) {
                 const size = 32 + Math.random() * 32;
                 const xStart = Math.random() * window.innerWidth;
                 const sway = Math.random() * 80 - 40;
-                const duration = 2 + Math.random() * 2;
+                const duration = 0.75 + Math.random() * 2;
 
                 return (
                     <motion.span
@@ -113,7 +152,6 @@ function DraggableCard({
 
     return (
         <>
-            {/* Indicateurs écran */}
             <EdgeIndicator
                 emoji="😍"
                 label="Excellent"
@@ -139,7 +177,6 @@ function DraggableCard({
                 position="bottom-6 left-1/2 -translate-x-1/2"
             />
 
-            {/* Carte */}
             <motion.div
                 drag
                 dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
@@ -157,69 +194,117 @@ function DraggableCard({
 /* ---------------- VOTE PAGE ---------------- */
 
 function VotePage() {
-    const [reaction, setReaction] = useState<string | null>(null);
+    const [menu, setMenu] = useState<MenuData | null>(null);
+    const [loading, setLoading] = useState(true);
 
-    const triggerReaction = (emoji: string) => {
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const [votes, setVotes] = useState<Record<number, Vote>>({});
+    const [reaction, setReaction] = useState<Vote | null>(null);
+
+    useEffect(() => {
+        fetchMenu()
+            .then(setMenu)
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    }, []);
+
+    if (loading) {
+        return (
+            <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center">
+                <p className="text-xl text-[#1C5588] animate-pulse">
+                    Chargement du menu...
+                </p>
+            </main>
+        );
+    }
+
+    if (!menu) {
+        return (
+            <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center">
+                <p className="text-xl text-red-600">
+                    Impossible de charger le menu
+                </p>
+            </main>
+        );
+    }
+
+    const cards: Card[] = [
+        { title: "Entrée", items: menu.starter },
+        { title: "Plat", items: menu.dish },
+        { title: "Dessert", items: menu.dessert },
+    ];
+
+    const currentCard = cards[currentIndex];
+
+    const handleVote = (emoji: Vote) => {
+        setVotes((prev) => ({
+            ...prev,
+            [currentIndex]: emoji,
+        }));
+
         setReaction(emoji);
         setTimeout(() => setReaction(null), 1600);
-        console.log("Vote :", emoji);
+
+        setCurrentIndex((prev) =>
+            Math.min(prev + 1, cards.length - 1)
+        );
+
+        console.log("Votes :", {
+            ...votes,
+            [currentIndex]: emoji,
+        });
+    };
+
+    const goBack = () => {
+        if (currentIndex > 0) {
+            setCurrentIndex((prev) => prev - 1);
+        }
     };
 
     return (
         <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center px-4">
             {reaction && <EmojiBalloons emoji={reaction} />}
 
-
             <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
                 <button
-                    disabled
-                    className="absolute top-0 left-0 p-2 rounded-full bg-white/20 text-[#1C5588]/90 shadow-md"
+                    onClick={goBack}
+                    disabled={currentIndex === 0}
+                    className={`absolute top-0 left-0 p-2 rounded-full shadow-md transition
+                        ${
+                        currentIndex === 0
+                            ? "bg-white/10 text-[#1C5588]/30 cursor-not-allowed"
+                            : "bg-white/20 text-[#1C5588]/90 hover:scale-110"
+                    }`}
                 >
                     <ArrowLeft size={24} strokeWidth={2.5} />
                 </button>
 
                 <h2 className="text-xl font-semibold text-[#1C5588]">
-                    Entrée
+                    {currentCard.title}
                 </h2>
 
-                <DraggableCard onVote={triggerReaction}>
+                <DraggableCard onVote={handleVote}>
                     <div className="h-40 bg-gray-200 rounded-2xl mb-4 flex items-center justify-center text-gray-400">
                         Image
                     </div>
 
                     <ul className="flex-1 text-center space-y-2 text-[#1C5588] font-medium">
-                        {data.starter.map((item) => (
+                        {currentCard.items.map((item) => (
                             <li key={item}>– {item}</li>
                         ))}
                     </ul>
                 </DraggableCard>
 
-                {/* Boutons emoji */}
                 <div className="w-full flex justify-between px-2">
-                    <button
-                        onClick={() => triggerReaction("🙁")}
-                        className="w-14 h-14 rounded-full bg-[#00BDC8]/40 text-3xl shadow-lg hover:scale-110 transition"
-                    >
-                        🙁
-                    </button>
-                    <button
-                        onClick={() => triggerReaction("😐")}
-                        className="w-14 h-14 rounded-full bg-[#00BDC8]/40 text-3xl shadow-lg hover:scale-110 transition"
-                    >
-                        😐
-                    </button>
-                    <button
-                        onClick={() => triggerReaction("🙂")}
-                        className="w-14 h-14 rounded-full bg-[#00BDC8]/40 text-3xl shadow-lg hover:scale-110 transition"
-                    >
-                        🙂
-                    </button>
-                    <button
-                        onClick={() => triggerReaction("😍")}
-                        className="w-14 h-14 rounded-full bg-[#00BDC8]/40 text-3xl shadow-lg hover:scale-110 transition"
-                    >
-                        😍
-                    </button>
+                    {["🙁", "😐", "🙂", "😍"].map((emoji) => (
+                        <button
+                            key={emoji}
+                            onClick={() => handleVote(emoji as Vote)}
+                            className="w-14 h-14 rounded-full bg-[#00BDC8]/40 text-3xl shadow-lg hover:scale-110 transition"
+                        >
+                            {emoji}
+                        </button>
+                    ))}
                 </div>
             </div>
         </main>
