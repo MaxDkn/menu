@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
-import { motion, useMotionValue, useTransform } from "framer-motion";
+import {motion, MotionValue, PanInfo, useMotionValue, useTransform} from "framer-motion";
 
 const DATABASE_URL = "https://commission-menu-default-rtdb.europe-west1.firebasedatabase.app";
 
-/* ---------------- DATA ---------------- */
 type Vote = "😍" | "🙂" | "😐" | "🙁";
+type Category = "starter" | "dish" | "dessert";
 
 interface MenuData {
     starter: string[];
@@ -15,22 +15,39 @@ interface MenuData {
     dessert: string[];
 }
 
-interface Card {
-    title: string;
-    items: string[];
-    vote?: Vote;
+interface FirebaseVotes {
+    like: number;
+    dislike: number;
+    bof: number;
+    excellent: number;
 }
+
+const voteMap: Record<Vote, keyof FirebaseVotes> = {
+    "😍": "excellent",
+    "🙂": "like",
+    "😐": "bof",
+    "🙁": "dislike",
+};
 
 function getTodayKey() {
     const d = new Date();
     return d.toLocaleDateString("fr-FR").replaceAll("/", "-");
 }
 
+function hasVotedToday(): boolean {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(`voted-${getTodayKey()}`) === "true";
+}
+
+function markVotedToday() {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(`voted-${getTodayKey()}`, "true");
+}
+
 async function fetchMenu(): Promise<MenuData> {
     const dateKey = getTodayKey();
     const cacheKey = `menu-${dateKey}`;
 
-    // 1️⃣ Cache local
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
         return JSON.parse(cached);
@@ -50,9 +67,23 @@ async function fetchMenu(): Promise<MenuData> {
     return data;
 }
 
+async function sendVote(category: Category, emoji: Vote) {
+    const dateKey = getTodayKey();
+    const voteKey = voteMap[emoji];
 
-/* ---------------- EMOJI RAIN ---------------- */
-
+    await fetch(
+        `${DATABASE_URL}/${dateKey}/data/${category}/${voteKey}.json`,
+        {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                ".sv": { increment: 1 },
+            }),
+        }
+    );
+}
 
 function EmojiBalloons({ emoji }: { emoji: string }) {
     const balloons = Array.from({ length: 24 });
@@ -60,9 +91,13 @@ function EmojiBalloons({ emoji }: { emoji: string }) {
     return (
         <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden">
             {balloons.map((_, i) => {
+                // eslint-disable-next-line react-hooks/purity
                 const size = 32 + Math.random() * 32;
+                // eslint-disable-next-line react-hooks/purity
                 const xStart = Math.random() * window.innerWidth;
+                // eslint-disable-next-line react-hooks/purity
                 const sway = Math.random() * 80 - 40;
+                // eslint-disable-next-line react-hooks/purity
                 const duration = 0.75 + Math.random() * 2;
 
                 return (
@@ -94,17 +129,10 @@ function EmojiBalloons({ emoji }: { emoji: string }) {
     );
 }
 
-/* ---------------- EDGE INDICATOR ---------------- */
-
-function EdgeIndicator({
-                           emoji,
-                           label,
-                           opacity,
-                           position,
-                       }: {
+function EdgeIndicator({emoji, label, opacity, position}: {
     emoji: string;
     label: string;
-    opacity: any;
+    opacity: MotionValue<number>;
     position: string;
 }) {
     return (
@@ -120,27 +148,21 @@ function EdgeIndicator({
     );
 }
 
-/* ---------------- DRAGGABLE CARD ---------------- */
-
-function DraggableCard({
-                           children,
-                           onVote,
-                       }: {
+function DraggableCard({children, onVote}: {
     children: React.ReactNode;
-    onVote: (emoji: string) => void;
+    onVote: (emoji: Vote) => void;
 }) {
     const x = useMotionValue(0);
     const y = useMotionValue(0);
 
     const rotate = useTransform(x, [-200, 200], [-10, 10]);
 
-    // Apparition rapide des indicateurs
     const rightOpacity = useTransform(x, [20, 80], [0, 1]);
     const leftOpacity = useTransform(x, [-80, -20], [1, 0]);
     const topOpacity = useTransform(y, [-80, -20], [1, 0]);
     const bottomOpacity = useTransform(y, [20, 80], [0, 1]);
 
-    const handleDragEnd = (_: any, info: any) => {
+    const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
         const { x, y } = info.offset;
         const threshold = 120;
 
@@ -191,14 +213,11 @@ function DraggableCard({
     );
 }
 
-/* ---------------- VOTE PAGE ---------------- */
-
 function VotePage() {
     const [menu, setMenu] = useState<MenuData | null>(null);
     const [loading, setLoading] = useState(true);
 
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [votes, setVotes] = useState<Record<number, Vote>>({});
     const [reaction, setReaction] = useState<Vote | null>(null);
 
     useEffect(() => {
@@ -228,32 +247,38 @@ function VotePage() {
         );
     }
 
-    const cards: Card[] = [
-        { title: "Entrée", items: menu.starter },
-        { title: "Plat", items: menu.dish },
-        { title: "Dessert", items: menu.dessert },
+    const cards = [
+        { title: "Entrée", items: menu.starter, category: "starter" as Category },
+        { title: "Plat", items: menu.dish, category: "dish" as Category },
+        { title: "Dessert", items: menu.dessert, category: "dessert" as Category },
     ];
+
+
 
     const currentCard = cards[currentIndex];
 
-    const handleVote = (emoji: Vote) => {
-        setVotes((prev) => ({
-            ...prev,
-            [currentIndex]: emoji,
-        }));
+    const handleVote = async (emoji: Vote) => {
+        if (hasVotedToday()) return;
+
+        const card = cards[currentIndex];
+
+        await sendVote(card.category, emoji);
 
         setReaction(emoji);
-        setTimeout(() => setReaction(null), 1600);
+        setTimeout(() => setReaction(null), 1200);
 
-        setCurrentIndex((prev) =>
-            Math.min(prev + 1, cards.length - 1)
-        );
+        if (currentIndex === cards.length - 1) {
+            markVotedToday();
+            setTimeout(() => {
+                window.location.reload();
+            }, 1200);
+        } else {
+            setCurrentIndex((prev) => prev + 1);
+        }
 
-        console.log("Votes :", {
-            ...votes,
-            [currentIndex]: emoji,
-        });
+
     };
+
 
     const goBack = () => {
         if (currentIndex > 0) {
@@ -311,10 +336,27 @@ function VotePage() {
     );
 }
 
-/* ---------------- START PAGE ---------------- */
-
 export default function Page() {
     const [started, setStarted] = useState(false);
+
+    if (hasVotedToday()) {
+        return (
+            <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center px-6">
+                <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="bg-white rounded-3xl shadow-xl p-8 text-center"
+                >
+                    <h2 className="text-2xl font-semibold text-[#1C5588] mb-4">
+                        Merci de votre avis 🙏
+                    </h2>
+                    <p className="text-[#1C5588]/80 text-lg">
+                        N&apos;hésitez pas à revenir demain pour noter le prochain repas !
+                    </p>
+                </motion.div>
+            </main>
+        );
+    }
 
     if (started) return <VotePage />;
 
