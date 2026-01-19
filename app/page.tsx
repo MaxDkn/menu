@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import {motion, MotionValue, PanInfo, useMotionValue, useTransform} from "framer-motion";
+import Image from "next/image";
 
 const DATABASE_URL = "https://commission-menu-default-rtdb.europe-west1.firebasedatabase.app";
 
@@ -309,9 +310,14 @@ function VotePage() {
                 </h2>
 
                 <DraggableCard onVote={handleVote}>
-                    <div className="h-40 bg-gray-200 rounded-2xl mb-4 flex items-center justify-center text-gray-400">
-                        Image
-                    </div>
+
+                    <Image
+                        src={`/images/illustration${currentIndex + 1}.jpg`}
+                        alt={`Illustration ${currentIndex + 1}`}
+                        width={640}    // largeur de l'image
+                        height={160}   // hauteur de l'image (h-40 = 10rem ≈ 160px)
+                        className="rounded-2xl mb-4 object-cover"
+                    />
 
                     <ul className="flex-1 text-center space-y-2 text-[#1C5588] font-medium">
                         {currentCard.items.map((item) => (
