@@ -3,9 +3,11 @@
 import React, { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { motion, PanInfo, useMotionValue, useTransform } from "framer-motion";
+
 import Image from "next/image";
 
 const DATABASE_URL = "https://commission-menu-default-rtdb.europe-west1.firebasedatabase.app";
+const USE_LOCAL_DATA = true;
 
 type Vote = "😍" | "🙂" | "😐" | "🙁";
 type Category = "starter" | "dish" | "dessert";
@@ -15,6 +17,21 @@ interface MenuData {
     dish: string[];
     dessert: string[];
 }
+
+const LOCAL_MENU: MenuData = {
+    starter: [
+        "Salade de tomates",
+        "Soupe de légumes"
+    ],
+    dish: [
+        "Poulet rôti",
+        "Pâtes bolognaise"
+    ],
+    dessert: [
+        "Yaourt",
+        "Tarte aux pommes"
+    ]
+};
 
 interface FirebaseVotes {
     like: number;
@@ -35,8 +52,6 @@ function getTodayKey() {
     return d.toLocaleDateString("fr-FR").replaceAll("/", "-");
 }
 
-// --- GESTION UNIQUE DE LA PROGRESSION ---
-// 0 = Entrée, 1 = Plat, 2 = Dessert, 3 = Fini
 function getProgressKey() {
     return `progress-${getTodayKey()}`;
 }
@@ -53,6 +68,11 @@ function saveProgress(index: number) {
 }
 
 async function fetchMenu(): Promise<MenuData> {
+    if (USE_LOCAL_DATA) {
+        await new Promise((res) => setTimeout(res, 300));
+        return LOCAL_MENU;
+    }
+
     const dateKey = getTodayKey();
     const cacheKey = `menu-${dateKey}`;
 
@@ -70,6 +90,11 @@ async function fetchMenu(): Promise<MenuData> {
 }
 
 async function sendVote(category: Category, emoji: Vote) {
+    if (USE_LOCAL_DATA) {
+        console.log("Vote simulé :", { category, emoji });
+        return;
+    }
+
     const dateKey = getTodayKey();
     const voteKey = voteMap[emoji];
 
@@ -82,10 +107,6 @@ async function sendVote(category: Category, emoji: Vote) {
         }
     );
 }
-
-// ... (Les composants EmojiBalloons, EdgeIndicator et DraggableCard restent inchangés) ...
-// Pour alléger la réponse, je ne remets pas tout le code visuel de ces 3 composants,
-// ils sont identiques à la version précédente.
 
 function EmojiBalloons({ emoji }: { emoji: string }) {
     const balloons = Array.from({ length: 24 });
@@ -199,13 +220,10 @@ function VotePage({ initialIndex }: { initialIndex: number }) {
         { title: "Dessert", items: menu.dessert, category: "dessert" as Category },
     ];
 
-    // Sécurité : si l'index est hors limite (ex: 3), on ne plante pas le rendu de la carte
-    // Le composant parent ou le reload gérera la transition vers l'écran de fin.
     const safeIndex = Math.min(currentIndex, cards.length - 1);
     const currentCard = cards[safeIndex];
 
     const handleVote = async (emoji: Vote) => {
-        // Empêcher le vote si on est déjà censé avoir fini (cas edge)
         if (currentIndex >= 3) return;
 
         const card = cards[safeIndex];
@@ -214,12 +232,10 @@ function VotePage({ initialIndex }: { initialIndex: number }) {
         setReaction(emoji);
         setTimeout(() => setReaction(null), 1200);
 
-        // Nouvelle logique simple : on incrémente et on sauvegarde
         const nextIndex = currentIndex + 1;
         saveProgress(nextIndex);
 
         if (nextIndex >= 3) {
-            // Si on atteint 3, c'est fini. On recharge pour afficher l'écran de remerciement.
             setTimeout(() => {
                 window.location.reload();
             }, 1200);
@@ -291,22 +307,18 @@ function VotePage({ initialIndex }: { initialIndex: number }) {
 }
 
 export default function Page() {
-    // État pour gérer le montage client et éviter l'erreur d'hydratation
     const [progress, setProgress] = useState<number | null>(null);
     const [started, setStarted] = useState(false);
 
     useEffect(() => {
-        // Au montage, on lit le localStorage
         const saved = getSavedProgress();
         setProgress(saved);
     }, []);
 
-    // Tant qu'on ne connait pas la progression (lecture localStorage), on n'affiche rien ou un loader léger
     if (progress === null) {
         return <main className="h-screen w-screen bg-[#FBCE9E]" />;
     }
 
-    // Si progression >= 3, c'est que les 3 étapes (0, 1, 2) sont faites.
     if (progress >= 3) {
         return (
             <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center px-6">
@@ -326,13 +338,10 @@ export default function Page() {
         );
     }
 
-    // Si on a déjà commencé (clic sur start) OU qu'on a déjà une progression entamée (ex: on a refresh à l'étape 1)
-    // On affiche directement la page de vote.
     if (started || progress > 0) {
         return <VotePage initialIndex={progress} />;
     }
 
-    // Sinon, écran d'accueil
     return (
         <main
             className="h-screen w-screen bg-[#FBCE9E] relative cursor-pointer"
