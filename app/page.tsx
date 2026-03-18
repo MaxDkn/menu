@@ -1,363 +1,178 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { ArrowLeft } from "lucide-react";
-import { motion, PanInfo, useMotionValue, useTransform } from "framer-motion";
+import { useState } from "react";
+import { motion } from "framer-motion";
 
-import Image from "next/image";
-
-const DATABASE_URL = "https://commission-menu-default-rtdb.europe-west1.firebasedatabase.app";
-const USE_LOCAL_DATA = true;
-
-type Vote = "😍" | "🙂" | "😐" | "🙁";
 type Category = "starter" | "dish" | "dessert";
 
-interface MenuData {
-    starter: string[];
-    dish: string[];
-    dessert: string[];
-}
-
-const LOCAL_MENU: MenuData = {
-    starter: [
-        "Salade de tomates",
-        "Soupe de légumes"
-    ],
-    dish: [
-        "Poulet rôti",
-        "Pâtes bolognaise"
-    ],
-    dessert: [
-        "Yaourt",
-        "Tarte aux pommes"
-    ]
+const MENU = {
+  starter: ["Salade de tomates", "Soupe de légumes", "Carottes râpées","Betraves"],
+  dish: ["Poulet rôti", "Pâtes bolognaise"],
+  dessert: ["Yaourt", "Tarte aux pommes"],
 };
 
-interface FirebaseVotes {
-    like: number;
-    dislike: number;
-    bof: number;
-    excellent: number;
-}
+const categories: Category[] = ["starter", "dish", "dessert"];
 
-const voteMap: Record<Vote, keyof FirebaseVotes> = {
-    "😍": "excellent",
-    "🙂": "like",
-    "😐": "bof",
-    "🙁": "dislike",
-};
-
-function getTodayKey() {
-    const d = new Date();
-    return d.toLocaleDateString("fr-FR").replaceAll("/", "-");
-}
-
-function getProgressKey() {
-    return `progress-${getTodayKey()}`;
-}
-
-function getSavedProgress(): number {
-    if (typeof window === "undefined") return 0;
-    const saved = localStorage.getItem(getProgressKey());
-    return saved ? parseInt(saved, 10) : 0;
-}
-
-function saveProgress(index: number) {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(getProgressKey(), index.toString());
-}
-
-async function fetchMenu(): Promise<MenuData> {
-    if (USE_LOCAL_DATA) {
-        await new Promise((res) => setTimeout(res, 300));
-        return LOCAL_MENU;
-    }
-
-    const dateKey = getTodayKey();
-    const cacheKey = `menu-${dateKey}`;
-
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-        return JSON.parse(cached);
-    }
-
-    const res = await fetch(`${DATABASE_URL}/${dateKey}.json`);
-    if (!res.ok) throw new Error("Erreur menu");
-
-    const data = await res.json();
-    localStorage.setItem(cacheKey, JSON.stringify(data));
-    return data;
-}
-
-async function sendVote(category: Category, emoji: Vote) {
-    if (USE_LOCAL_DATA) {
-        console.log("Vote simulé :", { category, emoji });
-        return;
-    }
-
-    const dateKey = getTodayKey();
-    const voteKey = voteMap[emoji];
-
-    await fetch(
-        `${DATABASE_URL}/${dateKey}/data/${category}/${voteKey}.json`,
-        {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ".sv": { increment: 1 } }),
-        }
-    );
-}
-
-function EmojiBalloons({ emoji }: { emoji: string }) {
-    const balloons = Array.from({ length: 24 });
-    return (
-        <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden">
-            {balloons.map((_, i) => {
-                const size = 32 + Math.random() * 32;
-                const xStart = Math.random() * window.innerWidth;
-                const sway = Math.random() * 80 - 40;
-                const duration = 0.75 + Math.random() * 2;
-                return (
-                    <motion.span
-                        key={i}
-                        initial={{ x: xStart, y: window.innerHeight + 60, scale: 0.8, opacity: 0 }}
-                        animate={{ y: -120, x: xStart + sway, opacity: 1 }}
-                        transition={{ duration, ease: "easeOut" }}
-                        className="absolute"
-                        style={{ fontSize: size }}
-                    >
-                        {emoji}
-                    </motion.span>
-                );
-            })}
-        </div>
-    );
-}
-
-function EdgeIndicator({ emoji, label, opacity, position }: any) {
-    return (
-        <motion.div style={{ opacity }} className={`fixed ${position} z-40 pointer-events-none`}>
-            <div className="bg-white/90 backdrop-blur px-4 py-2 rounded-2xl shadow-lg flex items-center gap-2 text-[#1C5588] font-semibold">
-                <span className="text-2xl">{emoji}</span>
-                <span>{label}</span>
-            </div>
-        </motion.div>
-    );
-}
-
-function DraggableCard({ children, onVote }: any) {
-    const x = useMotionValue(0);
-    const y = useMotionValue(0);
-    const rotate = useTransform(x, [-200, 200], [-10, 10]);
-    const rightOpacity = useTransform(x, [20, 80], [0, 1]);
-    const leftOpacity = useTransform(x, [-80, -20], [1, 0]);
-    const topOpacity = useTransform(y, [-80, -20], [1, 0]);
-    const bottomOpacity = useTransform(y, [20, 80], [0, 1]);
-
-    const handleDragEnd = (_: any, info: PanInfo) => {
-        const { x, y } = info.offset;
-        const threshold = 120;
-        if (x > threshold) onVote("😍");
-        else if (x < -threshold) onVote("🙁");
-        else if (y < -threshold) onVote("🙂");
-        else if (y > threshold) onVote("😐");
-    };
-
-    return (
-        <>
-            <EdgeIndicator emoji="😍" label="Excellent" opacity={rightOpacity} position="top-1/2 right-4 -translate-y-1/2" />
-            <EdgeIndicator emoji="🙁" label="Pas bon" opacity={leftOpacity} position="top-1/2 left-4 -translate-y-1/2" />
-            <EdgeIndicator emoji="🙂" label="Bien" opacity={topOpacity} position="top-6 left-1/2 -translate-x-1/2" />
-            <EdgeIndicator emoji="😐" label="Bof" opacity={bottomOpacity} position="bottom-6 left-1/2 -translate-x-1/2" />
-
-            <motion.div
-                drag
-                dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
-                style={{ x, y, rotate }}
-                onDragEnd={handleDragEnd}
-                whileTap={{ scale: 1.03 }}
-                className="w-full bg-white rounded-3xl shadow-xl p-4 flex flex-col cursor-grab active:cursor-grabbing"
-            >
-                {children}
-            </motion.div>
-        </>
-    );
-}
-
-
-function VotePage({ initialIndex }: { initialIndex: number }) {
-    const [menu, setMenu] = useState<MenuData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [currentIndex, setCurrentIndex] = useState(initialIndex);
-    const [reaction, setReaction] = useState<Vote | null>(null);
-
-    useEffect(() => {
-        fetchMenu()
-            .then(setMenu)
-            .catch(console.error)
-            .finally(() => setLoading(false));
-    }, []);
-
-    if (loading) {
-        return (
-            <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center">
-                <p className="text-xl text-[#1C5588] animate-pulse">Chargement...</p>
-            </main>
-        );
-    }
-
-    if (!menu) {
-        return (
-            <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center">
-                <p className="text-xl text-red-600">Erreur menu</p>
-            </main>
-        );
-    }
-
-    const cards = [
-        { title: "Entrée", items: menu.starter, category: "starter" as Category },
-        { title: "Plat", items: menu.dish, category: "dish" as Category },
-        { title: "Dessert", items: menu.dessert, category: "dessert" as Category },
-    ];
-
-    const safeIndex = Math.min(currentIndex, cards.length - 1);
-    const currentCard = cards[safeIndex];
-
-    const handleVote = async (emoji: Vote) => {
-        if (currentIndex >= 3) return;
-
-        const card = cards[safeIndex];
-        await sendVote(card.category, emoji);
-
-        setReaction(emoji);
-        setTimeout(() => setReaction(null), 1200);
-
-        const nextIndex = currentIndex + 1;
-        saveProgress(nextIndex);
-
-        if (nextIndex >= 3) {
-            setTimeout(() => {
-                window.location.reload();
-            }, 1200);
-        } else {
-            setCurrentIndex(nextIndex);
-        }
-    };
-
-    const goBack = () => {
-        if (currentIndex > 0) {
-            const prevIndex = currentIndex - 1;
-            setCurrentIndex(prevIndex);
-            saveProgress(prevIndex);
-        }
-    };
-
-    return (
-        <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center px-4">
-            {reaction && <EmojiBalloons emoji={reaction} />}
-
-            <div className="relative w-full max-w-sm flex flex-col items-center gap-6">
-                <button
-                    onClick={goBack}
-                    disabled={currentIndex === 0}
-                    className={`absolute top-0 left-0 p-2 rounded-full shadow-md transition
-                        ${currentIndex === 0
-                        ? "bg-white/10 text-[#1C5588]/30 cursor-not-allowed"
-                        : "bg-white/20 text-[#1C5588]/90 hover:scale-110"
-                    }`}
-                >
-                    <ArrowLeft size={24} strokeWidth={2.5} />
-                </button>
-
-                <h2 className="text-xl font-semibold text-[#1C5588]">
-                    {currentCard.title}
-                </h2>
-
-                <DraggableCard onVote={handleVote}>
-                    <Image
-                        key={safeIndex}
-                        src={`/menu/images/illustration${safeIndex + 1}.jpg`}
-                        alt={`Illustration ${safeIndex + 1}`}
-                        width={640}
-                        height={160}
-                        className="rounded-2xl mb-4 object-cover"
-                        priority={true}
-                    />
-                    <ul className="flex-1 text-center space-y-2 text-[#1C5588] font-medium">
-                        {currentCard.items.map((item) => (
-                            <li key={item}>– {item}</li>
-                        ))}
-                    </ul>
-                </DraggableCard>
-
-                <div className="w-full flex justify-between px-2">
-                    {["🙁", "😐", "🙂", "😍"].map((emoji) => (
-                        <button
-                            key={emoji}
-                            onClick={() => handleVote(emoji as Vote)}
-                            className="w-14 h-14 rounded-full bg-[#00BDC8]/40 text-3xl shadow-lg hover:scale-110 transition"
-                        >
-                            {emoji}
-                        </button>
-                    ))}
-                </div>
-            </div>
-        </main>
-    );
+function getTodayDate() {
+  return new Date().toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
 }
 
 export default function Page() {
-    const [progress, setProgress] = useState<number | null>(null);
-    const [started, setStarted] = useState(false);
+  const [index, setIndex] = useState(1);
+  const [dark, setDark] = useState(false);
 
-    useEffect(() => {
-        const saved = getSavedProgress();
-        setProgress(saved);
-    }, []);
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [locked, setLocked] = useState<Record<string, boolean>>({});
 
-    if (progress === null) {
-        return <main className="h-screen w-screen bg-[#FBCE9E]" />;
+  const handleRate = (item: string, value: number) => {
+    if (locked[item]) return;
+    setRatings((prev) => ({ ...prev, [item]: value }));
+    setLocked((prev) => ({ ...prev, [item]: true }));
+  };
+
+  const toggleUnlock = (item: string) => {
+    if (locked[item]) {
+      setLocked((prev) => ({ ...prev, [item]: false }));
     }
+  };
 
-    if (progress >= 3) {
-        return (
-            <main className="h-screen w-screen bg-[#FBCE9E] flex items-center justify-center px-6">
-                <motion.div
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className="bg-white rounded-3xl shadow-xl p-8 text-center"
-                >
-                    <h2 className="text-2xl font-semibold text-[#1C5588] mb-4">
-                        Merci de votre avis 🙏
-                    </h2>
-                    <p className="text-[#1C5588]/80 text-lg">
-                        N&apos;hésitez pas à revenir demain pour noter le prochain repas !
-                    </p>
-                </motion.div>
-            </main>
-        );
-    }
+  const bg = dark
+    ? "bg-[#0f0f0f]"
+    : "bg-[#e6e4d1]";
 
-    if (started || progress > 0) {
-        return <VotePage initialIndex={progress} />;
-    }
+  const text = dark ? "text-white" : "text-black";
 
-    return (
-        <main
-            className="h-screen w-screen bg-[#FBCE9E] relative cursor-pointer"
-            onClick={() => setStarted(true)}
+  return (
+    <main className={`h-screen w-screen ${bg} ${text} transition-colors duration-500 flex flex-col font-[Inter]`}>
+
+      {/* HEADER */}
+      <div className="pt-10 pb-2 flex justify-center items-center relative">
+        <h1 className="text-2xl font-semibold capitalize">
+          Menu du {getTodayDate()}
+        </h1>
+
+        {/* TOGGLE DARK MODE */}
+        <button
+          onClick={() => setDark(!dark)}
+          className="absolute right-4 top-10 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md border border-white/30 text-sm"
         >
-            <div className="absolute inset-0 flex items-center justify-center -translate-y-12">
-                <h1 className="text-3xl font-bold text-center text-[#1C5588]">
-                    Que pensez-vous du repas d&apos;aujourd&apos;hui ?
-                </h1>
-            </div>
+          {dark ? "☀️" : "🌙"}
+        </button>
+      </div>
 
-            <div className="absolute inset-0 flex items-center justify-center">
-                <h2 className="text-2xl text-[#1C5588]/70 animate-pulse">
-                    Cliquez pour commencer
-                </h2>
-            </div>
-        </main>
-    );
+      {/* SLIDER */}
+      <motion.div
+        className="flex flex-1"
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        onDragEnd={(_, info) => {
+          if (info.offset.x < -100 && index < 2) setIndex(index + 1);
+          if (info.offset.x > 100 && index > 0) setIndex(index - 1);
+        }}
+        animate={{ x: `-${index * 100}%` }}
+        transition={{ type: "spring", stiffness: 120, damping: 20 }}
+      >
+        {categories.map((cat) => (
+          <div
+            key={cat}
+            className="min-w-full flex flex-col justify-center gap-4 px-4 pb-28 pt-4"
+          >
+            {MENU[cat].map((item) => {
+              const isLocked = locked[item];
+
+              return (
+                <motion.div
+                  key={item}
+                  onClick={() => toggleUnlock(item)}
+                  whileTap={{ scale: 0.98 }}
+                  className={`
+                    w-full flex-1
+                    rounded-[28px]
+                    flex flex-col justify-center items-center
+                    transition-all duration-300
+                    ${
+                      isLocked
+                        ? "bg-white/10 opacity-40"
+                        : "bg-white/30 backdrop-blur-xl shadow-lg border border-white/30"
+                    }
+                  `}
+                >
+                  <h2 className="text-xl font-medium mb-3 text-center px-4">
+                    {item}
+                  </h2>
+
+                  {/* ÉTOILES */}
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <motion.button
+                        key={star}
+                        whileTap={{ scale: 1.3 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRate(item, star);
+                        }}
+                        className={`text-2xl ${
+                          ratings[item] >= star
+                            ? "text-yellow-400"
+                            : dark
+                            ? "text-white/30"
+                            : "text-black/30"
+                        }`}
+                      >
+                        ★
+                      </motion.button>
+                    ))}
+                  </div>
+
+                  {isLocked && (
+                    <p className="mt-2 text-xs opacity-70">
+                      Cliquer pour modifier
+                    </p>
+                  )}
+                </motion.div>
+              );
+            })}
+          </div>
+        ))}
+      </motion.div>
+
+      {/* NAVBAR GLASS */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-md">
+        <div className={`
+          backdrop-blur-2xl
+          border border-white/20
+          shadow-xl
+          rounded-2xl
+          px-2 py-2
+          flex justify-between
+          ${dark ? "bg-white/10" : "bg-white/40"}
+        `}>
+          {["Entrée", "Plat", "Dessert"].map((label, i) => (
+            <button
+              key={label}
+              onClick={() => setIndex(i)}
+              className="relative flex-1 py-2 text-center"
+            >
+              {index === i && (
+                <motion.div
+                  layoutId="bubble"
+                  className={`absolute inset-0 rounded-xl ${
+                    dark ? "bg-white/20" : "bg-white"
+                  }`}
+                />
+              )}
+
+              <span className="relative z-10 font-medium">
+                {label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
 }
