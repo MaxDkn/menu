@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Slider from "react-slick";
-import { motion, useMotionValue, useTransform } from "framer-motion";
+import Navbar from "./navbar"; 
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 
@@ -24,7 +24,6 @@ function getTodayDate() {
   });
 }
 
-// -------------------- MenuCard Component --------------------
 type MenuCardProps = {
   item: string;
   rating: number;
@@ -71,10 +70,11 @@ function MenuCard({ item, rating, locked, onRate, onToggle, dark }: MenuCardProp
   );
 }
 
-// -------------------- Page Component --------------------
 export default function Page() {
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [locked, setLocked] = useState<Record<string, boolean>>({});
+  const sliderRef = useRef<Slider>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   const prefersDark =
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -88,7 +88,6 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    // Bloque le scroll vertical pour effet app
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = "";
@@ -105,15 +104,6 @@ export default function Page() {
     if (locked[item]) setLocked((prev) => ({ ...prev, [item]: false }));
   };
 
-  const bg = dark ? "bg-[#0f0f0f]" : "bg-[#e6e4d1]";
-  const text = dark ? "text-white" : "text-black";
-
-  const sliderRef = useRef<Slider>(null);
-
-  // Motion value pour bulle liquid glass
-  const x = useMotionValue(0);
-  const [currentIndex, setCurrentIndex] = useState(0);
-
   const sliderSettings = {
     dots: false,
     infinite: false,
@@ -123,24 +113,17 @@ export default function Page() {
     swipeToSlide: true,
     arrows: false,
     afterChange: (index: number) => setCurrentIndex(index),
-    beforeChange: (oldIndex: number, newIndex: number) => setCurrentIndex(newIndex),
-    onSwipe: () => {
-      // Pas nécessaire, le motion value suit l'index
-    },
   };
 
-  // On calcule la position de la bulle en % selon index
-  const bubbleX = useTransform(x, [0, 1], [0, 100 / 3]); // 3 boutons, largeur 33.33%
+  const bg = dark ? "bg-[#0f0f0f]" : "bg-[#e6e4d1]";
+  const text = dark ? "text-white" : "text-black";
 
   return (
-    <main className={`h-[100dvh] w-screen ${bg} ${text} transition-colors duration-500 flex flex-col font-[Inter]`}>
-
-      {/* HEADER */}
+    <main className={`h-[100dvh] w-screen ${bg} ${text} flex flex-col font-[Inter]`}>
       <div className="pt-10 pb-2 flex justify-center items-center relative">
         <h1 className="text-2xl font-semibold capitalize">Menu du {getTodayDate()}</h1>
       </div>
 
-      {/* SLIDER */}
       <div className="flex-1 px-4 pb-28 pt-4">
         <Slider ref={sliderRef} {...sliderSettings}>
           {categories.map((cat) => (
@@ -161,38 +144,7 @@ export default function Page() {
         </Slider>
       </div>
 
-      {/* NAVBAR LIQUID GLASS */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-md">
-        <div
-          className={`
-            relative
-            backdrop-blur-xl
-            bg-white/25
-            border border-white/30
-            shadow-lg
-            rounded-2xl
-            px-2 py-2
-            flex justify-between
-          `}
-        >
-          {/* BULLE ANIMÉE FLUIDE */}
-          <motion.div
-            className="absolute top-1 left-1 h-[calc(100%-0.5rem)] w-[calc(33.33%-0.25rem)] rounded-xl bg-white/40 shadow-sm"
-            animate={{ x: `${currentIndex * 100}%` }}
-            transition={{ type: "spring", stiffness: 250, damping: 35 }}
-          />
-
-          {["Entrée", "Plat", "Dessert"].map((label, i) => (
-            <button
-              key={label}
-              onClick={() => sliderRef.current?.slickGoTo(i)}
-              className="relative flex-1 py-2 text-center z-10"
-            >
-              <span className="relative z-10 font-medium">{label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <Navbar sliderRef={sliderRef} dark={dark} currentIndex={currentIndex} />
     </main>
   );
 }
