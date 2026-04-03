@@ -1,15 +1,25 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import Slider from "react-slick";
-import Navbar from "./navbar"; 
+import Navbar from "./navbar";
+import {
+  fetchMenu,
+  fetchUserVotes,
+  saveVote,
+  deleteVote,
+  getOrCreateUserId,
+  toItemKey,
+  type MenuData,
+} from "@/lib/db";
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
 
 type Category = "starter" | "dish" | "dessert";
 
-const MENU = {
-  starter: ["Salade de tomates", "Soupe de légumes", "Carottes râpées", "Betraves"],
+const FALLBACK_MENU: MenuData = {
+  starter: ["Salade de tomates", "Soupe de légumes", "Carottes râpées", "Betteraves"],
   dish: ["Poulet rôti", "Pâtes bolognaise"],
   dessert: ["Yaourt", "Tarte aux pommes"],
 };
@@ -27,65 +37,48 @@ function getTodayDate() {
 type MenuCardProps = {
   item: string;
   rating: number;
-  locked: boolean;
+  voted: boolean;
   onRate: (value: number) => void;
-  onToggle: () => void;
-  dark: boolean;
 };
 
-function MenuCard({ item, rating, locked, onRate, onToggle, dark }: MenuCardProps) {
+function MenuCard({ item, rating, voted, onRate }: MenuCardProps) {
   return (
-    <div
-      onClick={onToggle}
-      className={`
-        w-full flex-1
-        rounded-[28px]
-        flex flex-col justify-center items-center
-        transition-all duration-300
-        p-6
-        ${locked ? "bg-white/10 opacity-40" : "bg-white/30 backdrop-blur-xl shadow-lg border border-white/30"}
-      `}
-    >
-      <h2 className="text-xl font-medium mb-3 text-center px-4">{item}</h2>
+    <div className="w-full rounded-2xl px-3 py-4 flex flex-col gap-3 transition-all duration-200 bg-white border border-neutral-100 shadow-sm dark:bg-zinc-800 dark:border-zinc-700 dark:shadow-none">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-base">{item}</span>
+        {voted && (
+          <span className="text-xs font-semibold text-emerald-500 tracking-wide">
+            ✓ Voté
+          </span>
+        )}
+      </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-1">
         {[1, 2, 3, 4, 5].map((star) => (
           <button
             key={star}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRate(star);
-            }}
-            className={`text-2xl ${
-              rating >= star ? "text-yellow-400" : dark ? "text-white/30" : "text-black/30"
-            }`}
+            onClick={() => onRate(star)}
+            className={`text-4xl leading-none transition-transform active:scale-90
+              ${rating >= star ? "text-amber-400" : "text-black/10 dark:text-white/15"}
+            `}
           >
             ★
           </button>
         ))}
       </div>
-
-      {locked && <p className="mt-2 text-xs opacity-70">Cliquer pour modifier</p>}
     </div>
   );
 }
 
 export default function Page() {
+  const [menu, setMenu] = useState<MenuData | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [ratings, setRatings] = useState<Record<string, number>>({});
-  const [locked, setLocked] = useState<Record<string, boolean>>({});
+  const [voted, setVoted] = useState<Record<string, boolean>>({});
+  const [userId, setUserId] = useState("");
   const sliderRef = useRef<Slider>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-
-  const prefersDark =
-    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const [dark, setDark] = useState(prefersDark);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => setDark(e.matches);
-    mediaQuery.addEventListener("change", handler);
-    return () => mediaQuery.removeEventListener("change", handler);
-  }, []);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -94,57 +87,127 @@ export default function Page() {
     };
   }, []);
 
-  const handleRate = (item: string, value: number) => {
-    if (locked[item]) return;
-    setRatings((prev) => ({ ...prev, [item]: value }));
-    setLocked((prev) => ({ ...prev, [item]: true }));
-  };
+  useEffect(() => {
+    async function init() {
+      try {
+        const uid = getOrCreateUserId();
+        setUserId(uid);
 
-  const toggleUnlock = (item: string) => {
-    if (locked[item]) setLocked((prev) => ({ ...prev, [item]: false }));
+        const [menuData, existingVotes] = await Promise.all([
+          fetchMenu(),
+          fetchUserVotes(uid),
+        ]);
+
+        if (!menuData) {
+          setMenu(FALLBACK_MENU);
+          setOffline(true);
+        } else {
+          setMenu(menuData);
+        }
+
+        const initialRatings: Record<string, number> = {};
+        const initialVoted: Record<string, boolean> = {};
+        for (const [key, rating] of Object.entries(existingVotes)) {
+          initialRatings[key] = rating;
+          initialVoted[key] = true;
+        }
+        setRatings(initialRatings);
+        setVoted(initialVoted);
+      } catch (e) {
+        console.error("Erreur init:", e);
+        setMenu(FALLBACK_MENU);
+        setOffline(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    init();
+  }, []);
+
+  const handleRate = async (item: string, value: number) => {
+    const key = toItemKey(item);
+    const isSameStar = ratings[key] === value;
+
+    setRatings((prev) => ({ ...prev, [key]: isSameStar ? 0 : value }));
+    setVoted((prev) => ({ ...prev, [key]: !isSameStar }));
+
+    if (!offline && userId) {
+      if (isSameStar) {
+        await deleteVote(userId, item);
+      } else {
+        await saveVote(userId, item, value);
+      }
+    }
   };
 
   const sliderSettings = {
     dots: false,
     infinite: false,
-    speed: 500,
+    speed: 400,
     slidesToShow: 1,
     slidesToScroll: 1,
     swipeToSlide: true,
     arrows: false,
-    afterChange: (index: number) => setCurrentIndex(index),
+    beforeChange: (_: number, next: number) => setCurrentIndex(next),
   };
 
-  const bg = dark ? "bg-[#0f0f0f]" : "bg-[#e6e4d1]";
-  const text = dark ? "text-white" : "text-black";
+  const activeMenu = menu ?? FALLBACK_MENU;
 
   return (
-    <main className={`h-[100dvh] w-screen ${bg} ${text} flex flex-col font-[Inter]`}>
-      <div className="pt-10 pb-2 flex justify-center items-center relative">
-        <h1 className="text-2xl font-semibold capitalize">Menu du {getTodayDate()}</h1>
+    <main className="h-[100dvh] w-screen flex flex-col bg-neutral-50 text-zinc-900 dark:bg-zinc-900 dark:text-white">
+      <div className="pt-12 pb-3 px-6">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+            Menu du jour
+          </p>
+          <div className="flex items-center gap-2">
+            {offline && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-neutral-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
+                ⚠ hors ligne
+              </span>
+            )}
+            <Link
+              href="/stats"
+              className="text-xs px-2 py-0.5 rounded-full font-medium transition-colors bg-neutral-200 text-zinc-500 hover:bg-neutral-300 dark:bg-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-600"
+            >
+              Stats →
+            </Link>
+          </div>
+        </div>
+        <h1 className="text-xl font-bold capitalize mt-1">{getTodayDate()}</h1>
       </div>
 
-      <div className="flex-1 px-4 pb-28 pt-4">
-        <Slider ref={sliderRef} {...sliderSettings}>
-          {categories.map((cat) => (
-            <div key={cat} className="flex flex-col gap-4">
-              {MENU[cat].map((item) => (
-                <MenuCard
-                  key={item}
-                  item={item}
-                  rating={ratings[item] || 0}
-                  locked={locked[item] || false}
-                  onRate={(value) => handleRate(item, value)}
-                  onToggle={() => toggleUnlock(item)}
-                  dark={dark}
-                />
-              ))}
-            </div>
-          ))}
-        </Slider>
-      </div>
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-sm text-zinc-400 dark:text-zinc-500">Chargement…</p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-hidden px-5 pb-28 pt-2">
+          <Slider ref={sliderRef} {...sliderSettings}>
+            {categories.map((cat) => (
+              <div key={cat} className="px-2">
+                <div className="flex flex-col gap-3">
+                  {activeMenu[cat].map((item) => {
+                    const key = toItemKey(item);
+                    return (
+                      <MenuCard
+                        key={item}
+                        item={item}
+                        rating={ratings[key] || 0}
+                        voted={voted[key] || false}
+                        onRate={(value) => handleRate(item, value)}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </Slider>
+        </div>
+      )}
 
-      <Navbar sliderRef={sliderRef} dark={dark} currentIndex={currentIndex} />
+      <Navbar sliderRef={sliderRef} currentIndex={currentIndex} />
     </main>
   );
 }

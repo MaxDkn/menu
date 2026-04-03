@@ -1,0 +1,12 @@
+{
+  "2026-04-03": {
+    "starter": ["Salade verte", "Melon"],
+    "dish": ["Lasagnes", "Poisson pané"],
+    "dessert": ["Mousse au chocolat"]
+  },
+  "2026-04-04": {
+    "starter": ["Soupe de légumes"],
+    "dish": ["Poulet rôti", "Quiche lorraine"],
+    "dessert": ["Yaourt", "Fruit"]
+  }
+}

@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
     assetPrefix: `/menu/`,
     images: {
         unoptimized: true
-    }
+    },
+    allowedDevOrigins: ["192.168.1.*"],
 };
 
 export default nextConfig;

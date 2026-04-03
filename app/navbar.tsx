@@ -5,42 +5,40 @@ import { RefObject } from "react";
 import Slider from "react-slick";
 
 type NavbarProps = {
-  sliderRef: RefObject<Slider>;
-  dark: boolean;
+  sliderRef: RefObject<Slider | null>;
   currentIndex: number;
 };
 
-export default function Navbar({ sliderRef, dark, currentIndex }: NavbarProps) {
-  const labels = ["Entrée", "Plat", "Dessert"];
+const tabs = [
+  { label: "Entrée",  icon: "🥗" },
+  { label: "Plat",    icon: "🍽️" },
+  { label: "Dessert", icon: "🍰" },
+];
 
+export default function Navbar({ sliderRef, currentIndex }: NavbarProps) {
   return (
-    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-md">
-      <div
-        className={`
-          relative
-          backdrop-blur-xl
-          bg-white/25
-          border border-white/30
-          shadow-lg
-          rounded-2xl
-          px-2 py-2
-          flex justify-between
-        `}
-      >
-        {/* BULLE ANIMÉE */}
+    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[88%] max-w-sm">
+      <div className="relative flex justify-between gap-1.5 rounded-2xl px-2 py-2 bg-white border border-neutral-100 shadow-lg dark:bg-zinc-800 dark:border-zinc-700 dark:shadow-none">
         <motion.div
-          className="absolute top-1 left-1 h-[calc(100%-0.5rem)] w-[calc(33.33%-0.25rem)] rounded-xl bg-white/40 shadow-sm"
-          animate={{ x: `${currentIndex * 100}%` }}
-          transition={{ type: "spring", stiffness: 250, damping: 35 }}
+          className="absolute top-2 left-2 h-[calc(100%-16px)] w-[calc(33.33%-8px)] rounded-xl bg-neutral-100 dark:bg-zinc-700"
+          animate={{ x: `calc(${currentIndex} * (100% + 6px))` }}
+          transition={{ type: "spring", stiffness: 300, damping: 35 }}
         />
 
-        {labels.map((label, i) => (
+        {tabs.map(({ label, icon }, i) => (
           <button
             key={label}
             onClick={() => sliderRef.current?.slickGoTo(i)}
-            className="relative flex-1 py-2 text-center z-10"
+            className="relative flex-1 py-2 flex flex-col items-center gap-0.5 z-10"
           >
-            <span className="relative z-10 font-medium">{label}</span>
+            <span className="text-xl leading-none">{icon}</span>
+            <span
+              className={`text-xs font-medium transition-opacity duration-200
+                ${currentIndex === i ? "opacity-100" : "opacity-35"}
+              `}
+            >
+              {label}
+            </span>
           </button>
         ))}
       </div>
